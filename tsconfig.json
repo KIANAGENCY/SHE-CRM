@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ES2020",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "outDir": "dist",
+    "skipLibCheck": false,
+    "lib": ["ES2020"],
+    "typeRoots": [],
+    "allowJs": true,
+    "checkJs": true,
+    "types": []
+  },
+  "include": ["src/**/*.js", "src/**/*.ts", "docs/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

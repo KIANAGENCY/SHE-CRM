@@ -44,7 +44,7 @@ body {
   box-shadow: 0 24px 90px #0008;
 }
 .auth-brand {
-  display: inline-block;
+  display: inline-flex;
   padding: 0 0 30px;
 }
 .auth-card form {
@@ -164,6 +164,18 @@ small,
   font-size: 15px;
   letter-spacing: 0.09em;
   padding: 0 12px 28px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.brand-logo {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+.brand-copy {
+  display: block;
 }
 .brand small {
   display: block;

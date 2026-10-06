@@ -1335,9 +1335,10 @@ async function bootstrapCloud() {
       return;
     }
     const remoteState = await loadCloudState(cloudContext);
-    if (!remoteState.clients.length) {
+    if (!remoteState.initialized) {
       state = seed();
       state.role = cloudContext.roleLabel;
+      state.initialized = true;
       await pushCloudState(state, cloudContext);
     } else {
       state = remoteState;

@@ -95,7 +95,11 @@ export function toRows(state, workspaceId) {
   const scoped = (row) => ({ workspace_id: workspaceId, ...row });
   return {
     crm_settings: [
-      { workspace_id: workspaceId, discount_limit: state.discountLimit },
+      {
+        workspace_id: workspaceId,
+        discount_limit: state.discountLimit,
+        initialized: Boolean(state.initialized),
+      },
     ],
     clients: state.clients.map((item) =>
       scoped({
@@ -243,6 +247,7 @@ export function fromRows(rows, roleLabel = "Ventas") {
   const settings = rows.crm_settings?.[0];
   return {
     version: 1,
+    initialized: Boolean(settings?.initialized),
     role: roleLabel,
     discountLimit: number(settings?.discount_limit),
     clients: (rows.clients || []).map((item) => ({
@@ -368,7 +373,6 @@ export function fromRows(rows, roleLabel = "Ventas") {
 }
 
 const tables = [
-  "crm_settings",
   "clients",
   "products",
   "aromas",
@@ -381,6 +385,7 @@ const tables = [
   "notifications",
   "conversations",
   "audit_log",
+  "crm_settings",
 ];
 
 export async function loadCloudState(context) {
@@ -428,7 +433,10 @@ export async function pushCloudState(state, context) {
       assert(
         await supabase
           .from("crm_settings")
-          .update({ discount_limit: settings.discount_limit })
+          .update({
+            discount_limit: settings.discount_limit,
+            initialized: settings.initialized,
+          })
           .eq("workspace_id", context.workspace.id),
       );
       continue;

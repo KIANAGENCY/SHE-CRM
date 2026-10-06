@@ -8,6 +8,7 @@ test("la conversión de Supabase conserva los datos esenciales del CRM", () => {
   const workspaceId = "11111111-1111-1111-1111-111111111111";
   const restored = fromRows(toRows(original, workspaceId), "Dirección");
 
+  assert.equal(restored.initialized, false);
   assert.equal(restored.role, "Dirección");
   assert.equal(restored.clients.length, original.clients.length);
   assert.deepEqual(restored.clients[0], original.clients[0]);

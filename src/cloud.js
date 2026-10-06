@@ -37,6 +37,7 @@ export async function signUp({ email, password, fullName, workspaceName }) {
       email,
       password,
       options: {
+        emailRedirectTo: window.location.origin,
         data: {
           full_name: fullName,
           workspace_name: workspaceName,

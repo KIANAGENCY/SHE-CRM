@@ -13,8 +13,23 @@ import {
   dormantClients,
   responseFor,
 } from "./domain.js";
+import {
+  cloudEnabled,
+  deleteCloudRecord,
+  getCloudContext,
+  loadCloudState,
+  onAuthStateChange,
+  pushCloudState,
+  signIn,
+  signOut,
+  signUp,
+  updateProductionOrder,
+} from "./cloud.js";
 const KEY = "hotel-expert-crm-v1";
 let state;
+let cloudContext = null;
+let cloudQueue = Promise.resolve();
+let authMode = "signin";
 let storageWarning = "";
 try {
   const stored = JSON.parse(localStorage.getItem(KEY));
@@ -111,6 +126,16 @@ function save() {
       "No se pudo guardar en este navegador. Exporta tus datos para conservarlos.",
     );
   }
+  if (cloudContext) {
+    const snapshot = structuredClone(state);
+    const context = cloudContext;
+    cloudQueue = cloudQueue
+      .then(() => pushCloudState(snapshot, context))
+      .catch((error) => {
+        console.error(error);
+        toast("Los cambios quedaron guardados localmente, pero falta sincronizarlos.");
+      });
+  }
 }
 function head(title, sub, action = "") {
   return `<header class="page-head"><div><h1>${title}</h1><p>${sub}</p></div>${action}</header>`;
@@ -137,7 +162,20 @@ function bindForm(fn) {
   });
 }
 function render() {
+  if (cloudEnabled && !cloudContext) {
+    renderAuth();
+    return;
+  }
   const route = current();
+  const profile = cloudContext
+    ? `<strong>${esc(cloudContext.workspace.name)}</strong><small>${esc(cloudContext.user.email)}<br>${esc(cloudContext.roleLabel)} · Datos sincronizados</small>${btn("Cerrar sesión", "logout")}`
+    : `<label>Simular perfil<select id="role">${["Dirección", "Administración", "Ventas", "Producción"].map((r) => `<option ${state.role === r ? "selected" : ""}>${r}</option>`).join("")}</select></label><small>Datos guardados en este navegador.<br>Demostración · sin servicios conectados</small>`;
+  const status = cloudContext
+    ? badge("Supabase conectado")
+    : badge("Modo demostración", "warn");
+  const footer = cloudContext
+    ? "CRM operativo · Datos protegidos por cuenta y espacio de trabajo · Sara usa respuestas simuladas."
+    : "Prototipo funcional · Datos ficticios · Sara usa respuestas simuladas · No se envían mensajes externos.";
   app.innerHTML = `<aside class="sidebar" aria-label="Navegación principal"><a class="brand" href="#/home">HOTEL EXPERT<small>CRM & OPERACIÓN</small></a><p class="nav-label">${esc(state.role.toUpperCase())}</p><nav>${Object.entries(
     paths,
   )
@@ -147,8 +185,8 @@ function render() {
     )
     .join(
       "",
-    )}</nav><div class="profile"><label>Simular perfil<select id="role">${["Dirección", "Administración", "Ventas", "Producción"].map((r) => `<option ${state.role === r ? "selected" : ""}>${r}</option>`).join("")}</select></label><small>Datos guardados en este navegador.<br>Demostración · sin servicios conectados</small></div></aside><main id="main"><div class="topbar"><button class="mobile-menu" aria-label="Abrir navegación" data-action="menu">☰</button><input class="search" id="search" aria-label="Buscar cliente, pedido u oportunidad" placeholder="Buscar cliente, pedido u oportunidad…" value="${esc(query)}">${badge("Modo demostración", "warn")}${btn("Exportar datos", "export")}</div>${query ? searchView() : view(route)}<p class="demo">Prototipo funcional · Datos ficticios · Sara usa respuestas simuladas · No se envían mensajes externos.</p></main>`;
-  document.querySelector("#role").addEventListener("change", (e) => {
+    )}</nav><div class="profile">${profile}</div></aside><main id="main"><div class="topbar"><button class="mobile-menu" aria-label="Abrir navegación" data-action="menu">☰</button><input class="search" id="search" aria-label="Buscar cliente, pedido u oportunidad" placeholder="Buscar cliente, pedido u oportunidad…" value="${esc(query)}">${status}${btn("Exportar datos", "export")}</div>${query ? searchView() : view(route)}<p class="demo">${footer}</p></main>`;
+  document.querySelector("#role")?.addEventListener("change", (e) => {
     state.role = e.target.value;
     save();
     render();
@@ -169,6 +207,41 @@ function render() {
     m.scrollTop = m.scrollHeight;
   }
   if (route === "quote-new" && !query) setupQuote();
+}
+
+function renderAuth(message = "") {
+  const signup = authMode === "signup";
+  app.innerHTML = `<main class="auth-shell"><section class="auth-card"><a class="brand auth-brand" href="#">HOTEL EXPERT<small>CRM & OPERACIÓN</small></a><p class="eyebrow">Acceso seguro</p><h1>${signup ? "Crear espacio de trabajo" : "Bienvenido al CRM"}</h1><p>${signup ? "Crea la cuenta principal de Hotel Expert. Esta cuenta tendrá el perfil de Dirección." : "Ingresa con tu correo y contraseña para abrir la operación comercial."}</p><form id="auth-form">${signup ? `${field("Nombre completo", "fullName", "", "text", 'required autocomplete="name"')}${field("Nombre del espacio", "workspaceName", "Hotel Expert", "text", 'required maxlength="120"')}` : ""}${field("Correo", "email", "", "email", 'required autocomplete="email"')}${field("Contraseña", "password", "", "password", `required minlength="8" autocomplete="${signup ? "new-password" : "current-password"}"`)}<p class="error" role="alert">${esc(message)}</p><button class="primary auth-submit" type="submit">${signup ? "Crear cuenta" : "Iniciar sesión"}</button></form><button class="auth-switch" data-action="auth-mode" data-id="${signup ? "signin" : "signup"}">${signup ? "Ya tengo una cuenta" : "Crear la cuenta principal"}</button><small>La sesión y los datos se protegen con Supabase Auth y permisos por perfil.</small></section></main>`;
+  document.querySelector("#auth-form")?.addEventListener("submit", submitAuth);
+}
+
+async function submitAuth(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = form.querySelector("button[type=submit]");
+  const data = Object.fromEntries(new FormData(form));
+  submit.disabled = true;
+  submit.textContent = "Procesando…";
+  try {
+    if (authMode === "signup") {
+      const result = await signUp({
+        email: data.email.trim(),
+        password: data.password,
+        fullName: data.fullName.trim(),
+        workspaceName: data.workspaceName.trim(),
+      });
+      if (!result.session) {
+        authMode = "signin";
+        renderAuth("Revisa tu correo para confirmar la cuenta y después inicia sesión.");
+        return;
+      }
+    } else {
+      await signIn(data.email.trim(), data.password);
+    }
+    await bootstrapCloud();
+  } catch (error) {
+    renderAuth(error.message || "No fue posible completar el acceso.");
+  }
 }
 function view(route) {
   return (
@@ -686,10 +759,21 @@ function inventoryView() {
   );
 }
 function teamView() {
+  const storagePanel = cloudContext
+    ? panel(
+        "Cuenta y respaldo",
+        `<p>Los cambios se sincronizan con el espacio <strong>${esc(cloudContext.workspace.name)}</strong>. También puedes descargar un respaldo en JSON.</p><div class="actions">${btn("Exportar datos", "export")}</div>`,
+      )
+    : panel(
+        "Datos de demostración",
+        `<p>Los cambios solo se guardan en este navegador. No uses datos reales de clientes en este prototipo.</p><div class="actions">${btn("Exportar datos", "export")}${btn("Reiniciar demo", "reset")}</div>`,
+      );
   return (
     head(
       "Equipo y permisos",
-      "Perfiles de demostración · La autorización real debe implementarse en servidor.",
+      cloudContext
+        ? "Acceso protegido por espacio de trabajo y perfil."
+        : "Perfiles de demostración · La autorización real debe implementarse en servidor.",
     ) +
     panel(
       "Responsabilidades",
@@ -710,7 +794,7 @@ function teamView() {
         ],
       ),
     ) +
-    `<div class="grid two" style="margin-top:20px">${panel("Reglas comerciales", `<p>Límite de descuento: <strong>${state.discountLimit}%</strong></p><p>Inicialmente 0% hasta que dirección registre la política.</p>${btn("Configurar descuento", "discount-policy")}`)}${panel("Datos de demostración", `<p>Los cambios solo se guardan en este navegador. No uses datos reales de clientes en este prototipo.</p><div class="actions">${btn("Exportar datos", "export")}${btn("Reiniciar demo", "reset")}</div>`)}</div>${panel(
+    `<div class="grid two" style="margin-top:20px">${panel("Reglas comerciales", `<p>Límite de descuento: <strong>${state.discountLimit}%</strong></p><p>Inicialmente 0% hasta que dirección registre la política.</p>${btn("Configurar descuento", "discount-policy")}`)}${storagePanel}</div>${panel(
       "Historial de cambios",
       table(
         ["Fecha", "Perfil", "Acción"],
@@ -780,6 +864,15 @@ document.addEventListener("click", (e) => {
   }
 });
 function handle(action, id, button) {
+  if (action === "auth-mode") {
+    authMode = id;
+    renderAuth();
+    return;
+  }
+  if (action === "logout") {
+    signOut().catch((error) => toast(error.message));
+    return;
+  }
   if (action === "close") {
     dialog.close();
     return;
@@ -1040,8 +1133,17 @@ function handle(action, id, button) {
     return;
   }
   if (action === "advance-order") {
-    advanceOrder(state, id, dialog.querySelector("[name=tracking]").value);
+    const updatedOrder = advanceOrder(
+      state,
+      id,
+      dialog.querySelector("[name=tracking]").value,
+    );
     save();
+    if (cloudContext?.role === "production") {
+      cloudQueue = cloudQueue
+        .then(() => updateProductionOrder(updatedOrder, cloudContext))
+        .catch((error) => toast(error.message));
+    }
     dialog.close();
     render();
     toast("Etapa actualizada y aviso registrado.");
@@ -1127,6 +1229,11 @@ function handle(action, id, button) {
     bindForm(() => {
       state.appointments = state.appointments.filter((a) => a.id !== id);
       audit(state, "Cita cancelada");
+      if (cloudContext) {
+        cloudQueue = cloudQueue
+          .then(() => deleteCloudRecord("appointments", id, cloudContext))
+          .catch((error) => toast(error.message));
+      }
     });
     return;
   }
@@ -1147,6 +1254,11 @@ function handle(action, id, button) {
   if (action === "complete-task") {
     state.tasks = state.tasks.filter((t) => t.id !== id);
     audit(state, "Seguimiento completado");
+    if (cloudContext) {
+      cloudQueue = cloudQueue
+        .then(() => deleteCloudRecord("tasks", id, cloudContext))
+        .catch((error) => toast(error.message));
+    }
     save();
     render();
     return;
@@ -1208,5 +1320,44 @@ window.addEventListener("hashchange", () => {
   render();
   window.scrollTo(0, 0);
 });
-render();
-if (storageWarning) toast(storageWarning);
+
+async function bootstrapCloud() {
+  if (!cloudEnabled) {
+    render();
+    if (storageWarning) toast(storageWarning);
+    return;
+  }
+  app.innerHTML = `<main class="auth-shell"><section class="auth-card"><p class="eyebrow">Hotel Expert</p><h1>Preparando tu CRM…</h1><p>Estamos cargando clientes, ventas y operación.</p></section></main>`;
+  try {
+    cloudContext = await getCloudContext();
+    if (!cloudContext) {
+      renderAuth();
+      return;
+    }
+    const remoteState = await loadCloudState(cloudContext);
+    if (!remoteState.clients.length) {
+      state = seed();
+      state.role = cloudContext.roleLabel;
+      await pushCloudState(state, cloudContext);
+    } else {
+      state = remoteState;
+    }
+    localStorage.setItem(KEY, JSON.stringify(state));
+    render();
+  } catch (error) {
+    cloudContext = null;
+    renderAuth(error.message || "No fue posible cargar el CRM.");
+  }
+}
+
+onAuthStateChange((event) => {
+  if (event === "SIGNED_OUT") {
+    cloudContext = null;
+    renderAuth();
+  }
+  if (event === "SIGNED_IN" && !cloudContext) {
+    setTimeout(() => bootstrapCloud(), 0);
+  }
+});
+
+bootstrapCloud();

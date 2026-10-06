@@ -423,6 +423,16 @@ export async function pushCloudState(state, context) {
 
   for (const table of allowed) {
     if (!rows[table]?.length) continue;
+    if (table === "crm_settings") {
+      const [settings] = rows.crm_settings;
+      assert(
+        await supabase
+          .from("crm_settings")
+          .update({ discount_limit: settings.discount_limit })
+          .eq("workspace_id", context.workspace.id),
+      );
+      continue;
+    }
     const appendOnly =
       table === "audit_log" ||
       (context.role === "sales" && ["orders", "notifications"].includes(table));

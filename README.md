@@ -37,4 +37,19 @@ Sin variables de Supabase, los datos se guardan en el navegador y el selector de
 
 Sara todavía simula respuestas y no hay comunicaciones externas, cobros, facturación fiscal ni inventario real conectados. Consultar [alcance y pendientes de integración](docs/IMPLEMENTACION.md).
 
+## Puente de WhatsApp
+
+`POST /api/whatsapp-relay` recibe una copia del evento que ya procesa
+`https://www.hotelexpert.mx/whatsapp-webhook.php` y la reenvía al webhook de
+n8n. El archivo PHP existente debe conservar su respuesta y enviar la copia con
+el encabezado `x-she-relay-secret`.
+
+Configurar en Vercel, como secretos de producción:
+
+- `N8N_WHATSAPP_WEBHOOK_URL`
+- `WHATSAPP_RELAY_SECRET`
+
+`GET /api/whatsapp-relay` es una comprobación de estado y no revela la
+configuración.
+
 El repositorio inicial contenía solo el andamiaje de Figma. La documentación original de su API se conserva bajo `docs/`.
